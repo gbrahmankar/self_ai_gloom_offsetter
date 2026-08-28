@@ -8,26 +8,31 @@ import "core:time"
 
 QUEUE_SIZE :: 5
 
-perpetual_producer :: proc(q: []int) {
-    absolute_write_index: u64
-    for true {
-        queue_write_index := absolute_write_index % QUEUE_SIZE
-        q[queue_write_index] = cast(int)absolute_write_index
-        fmt.printfln("write :: queue_idx=%d | val=%d", queue_write_index, absolute_write_index)
+Cache_Line_U64 :: struct #align(64) {
+    value: u64,
+}
 
-        absolute_write_index += 1
+absolute_write_index: Cache_Line_U64
+absolute_read_index: Cache_Line_U64
+
+perpetual_producer :: proc(q: []int) {
+    for true {
+        queue_write_index := absolute_write_index.value % QUEUE_SIZE
+        q[queue_write_index] = cast(int)absolute_write_index.value
+        fmt.printfln("write :: queue_idx=%d | val=%d", queue_write_index, absolute_write_index.value)
+
+        absolute_write_index.value += 1
         time.sleep(time.Second / 2)
     }
 }
 
 perpetual_consumer :: proc(q: []int) {
-    absolute_read_index: u64
     for true {
-        queue_read_index := absolute_read_index % QUEUE_SIZE
+        queue_read_index := absolute_read_index.value % QUEUE_SIZE
         val := q[queue_read_index]
         fmt.printfln("read :: queue_idx=%d | val=%d", queue_read_index, val)
 
-        absolute_read_index += 1
+        absolute_read_index.value += 1
         time.sleep(time.Second * 1)
     }
 }
