@@ -3,6 +3,7 @@
 package lockfree
 
 import "core:fmt"
+import "base:intrinsics"
 import "core:thread"
 import "core:time"
 
@@ -12,27 +13,40 @@ Cache_Line_U64 :: struct #align(64) {
     value: u64,
 }
 
-absolute_write_index: Cache_Line_U64
-absolute_read_index: Cache_Line_U64
+write_index: Cache_Line_U64
+read_index: Cache_Line_U64
 
 perpetual_producer :: proc(q: []int) {
     for true {
-        queue_write_index := absolute_write_index.value % QUEUE_SIZE
-        q[queue_write_index] = cast(int)absolute_write_index.value
-        fmt.printfln("write :: queue_idx=%d | val=%d", queue_write_index, absolute_write_index.value)
+        w := intrinsics.atomic_load_explicit(&write_index.value, .Relaxed)
+        next_write_idx := (w + 1) % QUEUE_SIZE
 
-        absolute_write_index.value += 1
-        time.sleep(time.Second / 2)
+        if next_write_idx == intrinsics.atomic_load_explicit(&read_index.value, .Acquire) {
+            fmt.printfln("write :: queue_full :: write_attempted_at_index=%d", w)
+            time.sleep(time.Second / 5)
+            continue
+        }
+
+        q[w] = cast(int)w
+        fmt.printfln("write :: queue_idx=%d | val=%d", w, w)
+
+        intrinsics.atomic_store_explicit(&write_index.value, next_write_idx, .Release)
+        time.sleep(time.Second / 5)
     }
 }
 
 perpetual_consumer :: proc(q: []int) {
     for true {
-        queue_read_index := absolute_read_index.value % QUEUE_SIZE
-        val := q[queue_read_index]
-        fmt.printfln("read :: queue_idx=%d | val=%d", queue_read_index, val)
+        r := intrinsics.atomic_load_explicit(&read_index.value, .Acquire)
 
-        absolute_read_index.value += 1
+        if r == intrinsics.atomic_load_explicit(&write_index.value, .Acquire) {
+            fmt.printfln("read :: queue_empty :: read_attempted_at_index=%d", r)
+            continue
+        }
+
+        fmt.printfln("read :: queue_idx=%d | val=%d", r, q[r])
+
+        intrinsics.atomic_store_explicit(&read_index.value, (r + 1) % QUEUE_SIZE, .Release)
         time.sleep(time.Second * 1)
     }
 }
